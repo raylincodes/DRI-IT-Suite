@@ -8,7 +8,7 @@
 ## Platform Foundation
 
 ### Core Shell Application
-- Avalonia UI desktop application (cross-platform capable, Windows-primary)
+- WPF with Lepo WPF UI desktop application (Windows-only)
 - Module-based architecture — each feature plugs into shared shell
 - Main navigation with module switching
 - Dark theme UI
