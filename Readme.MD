@@ -523,20 +523,6 @@
 
 ---
 
-## Module 12 — Physical Security Crossover
-
-### Badge System Correlator
-- Import badge system logs (CSV, SQL, API)
-- Correlate badge-in events with AD logon events
-- Flag anomalies:
-  - User badged in at Building A but logged in from Building B
-  - User logged in at 3 AM but never badged in
-  - Badge used but no corresponding network logon
-- Timeline visualization of physical + digital access
-- Insider threat detection signal
-
----
-
 ## Technology Stack
 
 ### Primary
