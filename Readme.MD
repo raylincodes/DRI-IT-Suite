@@ -36,6 +36,8 @@
 
 ## Module 1 — Agentless RMM (ConnectWise Automate Alternative)
 
+#### We need to use old WinRM/WMI to turn on the new WinRM/WMI. And we need to figure out if we're using WinRM over WWI because we don't want PS remoting enabled on the network if we don't have to have it on.
+
 ### Remote Execution
 - PowerShell remoting across fleet (System.Management.Automation)
 - Remote command execution via WMI Win32_Process.Create
@@ -51,7 +53,7 @@
 - Remote process kill
 - Remote registry read/write (Microsoft.Win32.RegistryKey.OpenRemoteBaseKey)
 - Remote software install/uninstall via WMI or PowerShell
-- Remote printer management (add, remove, set default, test page)
+- Remote printer management (add, remove, set default, test page) - This may be difficult with the whole remote printer execution thingy that happened where now you can't control printers remotely
 
 ### Live Endpoint Health Dashboard
 - Online/offline status via ICMP ping sweep
@@ -65,8 +67,10 @@
 - Power state monitoring (suspend/resume events)
 
 ### Visual PowerShell Workflow Builder
+#### (This may potentially be it's own module eventually, but the ability to store your own scripts will be a key feature from v1)
 - Drag-and-drop workflow blocks
 - Conditional logic (if service stopped → restart → log result)
+- Ability to monitor services
 - Target selection by OU, group, tag, or individual machine
 - Generates real PowerShell behind the scenes
 - Executes agentlessly across fleet
@@ -81,6 +85,7 @@
 - Compliance heatmap visualization
 - WSUS integration for patch source data
 - Exportable compliance reports for auditors
+- POSSIBLE: We consider the ability to roll out updates; this may or may not be feasible
 
 ---
 
