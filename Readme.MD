@@ -54,7 +54,7 @@ Core platform infrastructure — not a module feature. Every module routes alert
 
 ---
 
-## Module 1 — Agentless RMM (ConnectWise Automate Alternative)
+## Module 1 — Agentless RMM
 
 > **Note:** WinRM/WMI bootstrapping is a first-class concern. The connectivity engine must handle the case of using legacy WMI to enable modern WinRM on endpoints that haven't been configured yet. Decision pending on whether PS remoting is required or whether WMI-only execution is sufficient for all operations.
 
@@ -111,7 +111,7 @@ Read-only printer monitoring via WMI (Win32_Printer, Win32_PrintJob). Remote pri
 
 ---
 
-## Module 2 — Asset Intelligence (Lansweeper Alternative)
+## Module 2 — Asset Intelligence
 
 ### Agentless Discovery
 
@@ -263,7 +263,7 @@ Read-only printer monitoring via WMI (Win32_Printer, Win32_PrintJob). Remote pri
 
 ---
 
-## Module 5 — Threat Dashboard (SIEM for Small IT Teams)
+## Module 5 — Threat Dashboard
 
 ### Windows Event Log Aggregation
 
