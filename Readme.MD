@@ -1,6 +1,6 @@
 # Enterprise IT Management Platform — Feature Specification
 
-**Working Document — v2**
+**Working Document — v2.1 (Lean & Shippable)**
 **Date: February 2026**
 
 ---
@@ -18,17 +18,19 @@ This platform is designed exclusively for **on-premises IT departments** managin
 - WPF with Lepo WPF UI desktop application (Windows-only)
 - Module-based architecture — each feature plugs into shared shell
 - Main navigation with module switching
-- Dark theme UI
-- SkiaSharp integration for custom rendering (graphs, heatmaps, floor plans)
+- **Dark theme UI only** (no light mode)
+- LiveCharts2 for dashboard visualizations (pie, bar, donut charts)
+- ScottPlot for real-time monitoring graphs (CPU, RAM, network over time)
 
 ### Shared Infrastructure
 
-- SQL Server database backend
+- SQL Server database backend (standard relational tables, no graph extensions)
 - Raw ADO.NET data layer (SqlConnection/SqlCommand, manual SQL, no ORMs)
 - Unified credential vault with DPAPI encryption at rest
 - Background service engine (scheduled discovery, scanning, monitoring)
 - Real-time UI updates via AppState store pattern with ObservableProperty
 - First-run setup wizard (auto-discover AD, configure OUs, set credentials)
+- Async/await with `SemaphoreSlim` for concurrent scanning (50-100 machines simultaneously)
 
 ### Alerting & Notification Engine
 
@@ -43,29 +45,42 @@ Core platform infrastructure — not a module feature. Every module routes alert
 
 ### Connectivity Engine
 
-- Unified remote execution layer abstracting all protocols
-- WinRM remoting
-- WMI/CIM queries (Microsoft.Management.Infrastructure)
-- SMB file access
+Unified remote execution layer abstracting all protocols with intelligent fallback strategy.
+
+- **Primary transport:** WinRM/PowerShell remoting (System.Management.Automation)
+- **Legacy fallback:** WMI/CIM queries (Microsoft.Management.Infrastructure) for bootstrapping WinRM
+- **Bootstrapping workflow:**
+  1. Attempt WinRM connection first (port 5985/5986)
+  2. If WinRM unavailable, fall back to legacy WMI (DCOM/RPC)
+  3. Via WMI, execute: `Enable-PSRemoting -Force -SkipNetworkProfileCheck`
+  4. Wait 10 seconds for service startup
+  5. Retry WinRM connection
+  6. Mark machine as "WinRM-enabled" in database for future connections
+- SMB file access for file operations
 - SSH (for Linux targets)
-- SNMP (UDP + ASN.1/BER parsing)
+- SNMP (UDP + ASN.1/BER parsing) for network devices
 - Connection pooling and credential management
 - Structured result returns per host
 
 ---
 
-## Module 1 — Agentless RMM
+## V1 Core Modules
 
-> **Note:** WinRM/WMI bootstrapping is a first-class concern. The connectivity engine must handle the case of using legacy WMI to enable modern WinRM on endpoints that haven't been configured yet. Decision pending on whether PS remoting is required or whether WMI-only execution is sufficient for all operations.
+The following modules constitute the shippable V1 product. All other modules are deferred to V2.
+
+---
+
+## Module 1 — Agentless RMM
 
 ### Remote Execution
 
-- PowerShell remoting across fleet (System.Management.Automation)
-- Remote command execution via WMI Win32_Process.Create
+- PowerShell remoting across fleet via WinRM (System.Management.Automation)
+- Remote command execution via WMI Win32_Process.Create (legacy fallback)
 - Script library with version history
 - Scheduled automation with configurable intervals
 - Approval workflows for sensitive operations (reboot, service restart)
 - Job queue with status tracking and result logging
+- Real-time PowerShell output displayed in monospaced terminal window
 
 ### Endpoint Management
 
@@ -78,19 +93,21 @@ Core platform infrastructure — not a module feature. Every module routes alert
 
 ### Printer Management
 
-Read-only printer monitoring via WMI (Win32_Printer, Win32_PrintJob). Remote printer driver installation is not supported on modern Windows following PrintNightmare mitigations.
+Read-only printer monitoring via WMI (Win32_Printer, Win32_PrintJob).
 
 - Printer status monitoring per endpoint
 - Print queue depth and stalled job detection
 - Print server health monitoring (Windows Print Spooler service status)
 
-> **v2 Consideration:** Ephemeral one-shot deployment stub for printer driver installation — a self-deleting bootstrapper that installs a driver and removes itself, without leaving a persistent agent. This is architecturally compatible with the agentless model and worth revisiting after v1 ships.
+> **V2 Consideration:** Ephemeral one-shot deployment stub for printer driver installation — a self-deleting bootstrapper that installs a driver and removes itself, without leaving a persistent agent.
 
 ### Live Endpoint Health Dashboard
 
-- Online/offline status via ICMP ping sweep
-- CPU utilization (real-time via WMI perf counters)
-- RAM usage
+Real-time monitoring with ScottPlot line charts showing historical trends.
+
+- Online/offline status via async ICMP ping sweep
+- CPU utilization (real-time via WMI perf counters) with 1-hour history graph
+- RAM usage with trend visualization
 - Disk space and disk health (Win32_DiskDrive status)
 - Network adapter throughput (bytes sent/received per sec)
 - Battery status for laptops (chassis type detection + Win32_Battery)
@@ -104,10 +121,10 @@ Read-only printer monitoring via WMI (Win32_Printer, Win32_PrintJob). Remote pri
 - Missing KB identification per machine
 - Days-behind-current calculation
 - Risk scoring based on CVE severity of missing patches
-- Compliance heatmap visualization
+- Compliance visualization via LiveCharts2 (bar/pie charts, not heatmaps)
 - WSUS integration for patch source data
 - Exportable compliance reports
-- Patch rollout capability is a future consideration pending feasibility assessment
+- Patch rollout capability deferred to V2
 
 ---
 
@@ -120,6 +137,7 @@ Read-only printer monitoring via WMI (Win32_Printer, Win32_PrintJob). Remote pri
 - SSH-based discovery for Linux/network devices
 - Continuous scheduled scanning with configurable intervals
 - Auto-population of new devices across LAN subnets
+- Async parallel scanning (50-100 machines concurrently via SemaphoreSlim)
 
 ### Hardware Inventory
 
@@ -136,7 +154,8 @@ Read-only printer monitoring via WMI (Win32_Printer, Win32_PrintJob). Remote pri
 
 ### Software Inventory
 
-- Installed applications enumeration via registry (HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall and Wow6432Node equivalent) — Win32_Product is explicitly excluded due to Windows Installer consistency check side effects
+- Installed applications enumeration via registry (`HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall` and Wow6432Node equivalent)
+- **Win32_Product is explicitly excluded** due to Windows Installer consistency check side effects
 - Software version tracking across fleet
 - License tracking framework
 - Software change detection (new installs, removals, updates between scans)
@@ -161,105 +180,13 @@ Read-only printer monitoring via WMI (Win32_Printer, Win32_PrintJob). Remote pri
 - Asset age tracking (warranty/lifecycle management)
 - Hardware spec compliance (minimum RAM, disk space thresholds)
 - OS version compliance (end-of-life detection)
-- Fleet-wide asset statistics and visualizations
+- Fleet-wide asset statistics and visualizations via LiveCharts2
 
 ### Audit Evidence Collection
 
 - Point-in-time inventory snapshots
 - Change-over-time reports
 - Exportable inventory data for auditors
-
----
-
-## Module 3 — Network Recon & Visualization
-
-### Real-Time Interactive Topology Mapper
-
-- Force-directed graph or geographic layout
-- Auto-discovery of network topology via SNMP, ARP, CDP/LLDP
-- Device type classification (switch, router, server, workstation, printer)
-- Connection mapping (which port connects to what)
-- VLAN visualization with color coding
-- Click-through to device details
-
-### Switch Port Mapper
-
-- Walk managed switches via SNMP
-- Map every port to connected device (MAC table + ARP + reverse DNS + AD lookup)
-- Visual representation of each switch with color-coded ports
-- Port states: active, inactive, PoE-enabled, trunked, VLAN-tagged, err-disabled
-- Cable trace from endpoint to switch to patch panel
-
-### WiFi Network Monitor
-
-- Connected device enumeration from wireless access points (SNMP where supported)
-- Per-device bandwidth utilization
-- Rogue access point detection
-- SSID inventory across the facility
-- Client association history
-
-### DHCP Lease Visualizer
-
-- Pull lease data from Windows DHCP servers
-- Scope utilization heatmaps
-- Rogue device detection (got lease but not in AD)
-- Device subnet movement tracking over time
-- Lease expiration monitoring
-
-### Cable Plant / Rack Visualizer
-
-- Define server rooms, racks, patch panels, switch ports
-- Visual cable path: endpoint → wall jack → patch panel → switch port
-- Documentation for cable runs
-- Audit-ready infrastructure diagrams
-
----
-
-## Module 4 — Compliance & Configuration
-
-### CIS/NIST/PCI Benchmark Scanning
-
-- Automated checks against CIS Benchmarks for Windows
-- NIST 800-53 control mapping
-- PCI-DSS requirement checks
-- Custom benchmark creation
-- Per-machine compliance scoring
-
-### Configuration Drift Detection
-
-- Baseline configuration capture
-- Periodic comparison against baseline
-- Alert on unauthorized configuration changes
-- Drift visualization over time
-
-### GPO State Management
-
-- GPO inventory and documentation
-- Before/after snapshot comparison
-- Effective policy calculation per OU
-- GPO change tracking with history
-
-### GPO Conflict Detector
-
-- Scan all Group Policy Objects
-- Identify conflicting settings (two GPOs setting the same registry value differently)
-- Show effective policy per OU with visual inheritance tree
-- Highlight security-relevant settings deviating from CIS benchmarks
-- Precedence and filtering analysis (WMI filters, security filtering, enforcement)
-
-### Compliance Heatmaps
-
-- Organization-wide compliance score visualization
-- Drill-down from org level → OU → individual machine
-- Trend tracking over time
-- Color-coded risk grading
-
-### Automated Audit Evidence
-
-- Scheduled compliance report generation
-- Evidence package creation (screenshots, configs, scan results)
-- Timestamped proof of compliance state
-- Export in auditor-friendly formats
 
 ---
 
@@ -280,10 +207,11 @@ Read-only printer monitoring via WMI (Win32_Printer, Win32_PrintJob). Remote pri
 
 ### Real-Time Threat Visualization
 
-- Geolocated failed login attempts on world map
+- Failed login attempt tracking with source IP geolocation
 - Brute force detection with automatic pattern recognition
-- Lateral movement visualization (unusual auth patterns between machines)
+- Lateral movement detection (unusual auth patterns between machines)
 - Timeline-based event viewer with filtering
+- LiveCharts2 visualizations for threat trends (not map-based)
 
 ### Detection Rules
 
@@ -296,8 +224,8 @@ Read-only printer monitoring via WMI (Win32_Printer, Win32_PrintJob). Remote pri
 
 - Pull Security, System, PowerShell, Sysmon logs from any machine (agentless)
 - Correlate into unified chronological timeline
-- Visual storyboard rendering
-- "At 2:14 AM user X authenticated → 2:15 AM PowerShell encoded command → 2:16 AM new service installed"
+- Sortable/filterable data grid presentation
+- Example: "At 2:14 AM user X authenticated → 2:15 AM PowerShell encoded command → 2:16 AM new service installed"
 - Exportable incident timeline for reports
 
 ### PowerShell Script Block Collector
@@ -306,14 +234,17 @@ Read-only printer monitoring via WMI (Win32_Printer, Win32_PrintJob). Remote pri
 - Pattern scanning for suspicious content:
   - Encoded commands (base64)
   - Invoke-Mimikatz / Invoke-WebRequest to external URLs
-  - [System.Reflection.Assembly]::Load calls
+  - `[System.Reflection.Assembly]::Load` calls
   - AMSI bypass patterns
   - Credential harvesting functions
 - Alert on detection with full script content
+- Results displayed in sortable grid with syntax highlighting
 
 ---
 
 ## Module 6 — Credential Hygiene & AD Security
+
+**Note:** All visualizations in this module use **sortable data grids and LiveCharts2**, not force-directed graphs. Attack path visualization is deferred to V2.
 
 ### Active Directory Security Posture Assessment
 
@@ -326,6 +257,7 @@ Read-only printer monitoring via WMI (Win32_Printer, Win32_PrintJob). Remote pri
 - Nested group membership analysis
 - AdminSDHolder permission audit
 - Service account risk assessment
+- Results displayed as sortable/filterable tables with risk scoring
 
 ### Stale Object Graveyard
 
@@ -341,7 +273,7 @@ Read-only printer monitoring via WMI (Win32_Printer, Win32_PrintJob). Remote pri
 
 - Domain password policy assessment
 - Fine-grained password policy enumeration
-- Password age distribution across all accounts
+- Password age distribution across all accounts (histogram via LiveCharts2)
 - Compliance comparison against NIST/CIS recommendations
 
 ### Kerberos Ticket Inspector
@@ -352,24 +284,14 @@ Read-only printer monitoring via WMI (Win32_Printer, Win32_PrintJob). Remote pri
 - Failed authentication analysis
 - Kerberoasting indicators (anomalous TGS-REQ patterns)
 - AS-REP roasting detection
-- Visual dashboard of authentication activity
-
-### AD Attack Path Visualizer (Defensive BloodHound)
-
-- LDAP enumeration of AD relationships (same data SharpHound collects)
-- Graph rendering of privilege escalation paths (SkiaSharp)
-- Identify shortest path: standard user → Domain Admin
-- Highlight top 5 worst attack paths with remediation steps
-- Neo4j backend for graph traversal — embedded as a local service alongside SQL Server
-- Framed entirely from defensive perspective
-- Risk-scored findings with prioritized recommendations
+- Dashboard showing authentication activity trends (LiveCharts2)
 
 ### Group Policy Security Analysis
 
 - Security-relevant GPO settings inventory
 - Comparison against CIS/NIST benchmarks
 - Weak settings identification (LM hash storage, NTLMv1 allowed, etc.)
-- GPO inheritance visualization with effective policy calculation
+- GPO inheritance analysis with sortable grid showing effective policy per OU
 
 ### User Access Control Automation
 
@@ -383,6 +305,8 @@ Read-only printer monitoring via WMI (Win32_Printer, Win32_PrintJob). Remote pri
 
 ## Module 7 — Deception Engine
 
+**This is the killer differentiator.** Zero false positive detection — if it fires, you have confirmed attacker activity.
+
 ### Honey Token Factory
 
 - Auto-generate and deploy deception assets across AD
@@ -391,13 +315,13 @@ Read-only printer monitoring via WMI (Win32_Printer, Win32_PrintJob). Remote pri
 - Dummy credential files (.rdp, passwords.xlsx, creds.txt) on file shares
 - All assets are monitored tripwires
 - MITRE ATT&CK technique mapping on trigger
-- Zero false positive detection — if it fires, you have an attacker
+- Instant high-confidence alerts via alerting engine
 
 ### Canary File Shares
 
-- Create SMB shares with enticing names (\\server\IT-Passwords)
+- Create SMB shares with enticing names (`\\server\IT-Passwords`)
 - Place believable decoy files
-- Monitor access via agentless event log collection
+- Monitor access via agentless event log collection (Event ID 5140, 4663)
 - Any access = confirmed attacker or insider threat
 - Single wizard to deploy shares, create bait, wire monitoring
 
@@ -419,143 +343,11 @@ Read-only printer monitoring via WMI (Win32_Printer, Win32_PrintJob). Remote pri
 
 ### Honey Token Management Dashboard
 
-- Centralized view of all deployed deception assets
+- Centralized view of all deployed deception assets (sortable grid)
 - Status monitoring (active, triggered, expired)
 - Trigger history with full forensic details
 - Health checks to ensure deceptions remain believable
 - Rotation scheduling to keep deceptions fresh
-
----
-
-## Module 8 — MITRE ATT&CK Coverage & Validation
-
-### ATT&CK Coverage Mapper
-
-- Scan environment for current detection capabilities:
-  - Which event logs are being collected
-  - Which audit policies are enabled
-  - PowerShell logging configuration
-  - Sysmon rules deployment status
-- Map against full MITRE ATT&CK Windows matrix
-- Visual heatmap: green (detectable), yellow (partial), red (blind)
-- Per-technique remediation: exact GPO settings, audit policies, and log subscriptions to enable
-- Track coverage improvement over time
-
-### Purple Team Automator
-
-- Execute safe versions of common attack techniques against own environment
-- Verify whether defenses detect each technique
-- Test categories:
-  - Did PowerShell script block logging catch the encoded command?
-  - Did event log capture the lateral movement?
-  - Did Kerberoasting attempt generate an alert?
-  - Did the honey token get tripped?
-- Push-button validation with pass/fail report per technique
-- Atomic Red Team-style testing integrated into platform
-- Scheduled recurring validation
-
----
-
-## Module 9 — Pentest & Security Assessment
-
-### Internal Vulnerability Scanner
-
-- Port scan own fleet
-- Enumerate exposed services per machine
-- Identify machines running SMBv1
-- Check for missing patches on exposed services
-- Flag RDP exposed without Network Level Authentication
-- Find open admin shares (C$, ADMIN$)
-- Detect default/weak service configurations
-
-### SMB Security Assessment
-
-- Check SMB signing status across fleet (disabled = relay attack surface)
-- Identify machines vulnerable to SMB relay
-- NTLMv1 vs NTLMv2 enforcement check
-- SMB encryption status
-- Risk scoring per machine
-
-### LLMNR/NBT-NS Poisoning Detection
-
-- Check if LLMNR and NBT-NS are disabled fleet-wide
-- Monitor for unexpected LLMNR responses (Responder detection)
-- Alert on machines with poisoning protocols still enabled
-- Remediation guidance (GPO settings to disable)
-
-### ARP Watch / Rogue Device Detector
-
-- Passive ARP traffic monitoring
-- New device appearance detection
-- ARP spoofing / MITM attack detection
-- MAC address conflict identification
-- Cross-reference with AD and DHCP data
-- Flag devices with static IPs not in any inventory
-
----
-
-## Module 10 — Endpoint Forensics
-
-### USB Device Audit Trail
-
-- Query registry and event logs across fleet (agentless)
-- Complete history of every USB device ever connected to every machine
-- Timestamps, device serial numbers, user context
-- Device type classification (storage, HID, printer, etc.)
-- DLP compliance reporting
-- Exportable audit evidence
-
-### Shadow IT Detector
-
-- Scan installed software across all endpoints via registry enumeration
-- Compare against approved software whitelist
-- Flag unapproved installations with install dates and user context
-- Department-level trend tracking
-- Periodic automated scanning with alerting
-
-### WMI Persistence Scanner
-
-- Agentless scan for rogue WMI event subscriptions (attacker persistence)
-- Suspicious scheduled tasks detection
-- Services with unusual binary paths
-- Run/RunOnce registry keys pointing to non-standard locations
-- Startup folder anomalies
-- Agentless autoruns equivalent for entire fleet
-
-### Process Anomaly Baseline
-
-- Periodic process snapshots across fleet via WMI
-- Build baseline of "normal" processes per machine role
-- Alert on anomalies:
-  - Known offensive tools (mimikatz, psexec, rubeus, etc.)
-  - Unsigned processes running from temp directories
-  - Processes with suspicious parent-child relationships
-  - New services that weren't in previous baseline
-
-### File Integrity Monitor
-
-- Watch critical system files, config files, registry keys across fleet
-- Compute and store cryptographic hashes
-- Alert on unauthorized modification with before/after diff
-- PCI-DSS FIM requirement compliance
-- Configurable watch lists per machine role (DC, file server, workstation)
-
----
-
-## Module 11 — Certificate & Crypto Management
-
-### Certificate Expiration Dashboard
-
-- Scan environment for SSL/TLS certificates:
-  - Web servers (IIS bindings)
-  - LDAPS on domain controllers
-  - RDP certificates
-  - SQL Server certificates
-  - SMTP/Exchange certificates
-- Countdown timers per certificate
-- Alerting at configurable thresholds (90, 60, 30, 7 days) via shared alerting engine
-- Certificate chain validation
-- Single dashboard view of all internal certificate health
 
 ---
 
@@ -564,30 +356,24 @@ Read-only printer monitoring via WMI (Win32_Printer, Win32_PrintJob). Remote pri
 ### Primary
 
 - **Language:** C# / .NET 8+
-- **UI Framework:** WPF with Lepo WPF UI (Windows-only)
-- **Database:** SQL Server (on-premise) + Neo4j (embedded, for AD graph traversal in Module 6)
-- **Data Access:** Raw ADO.NET (SqlConnection / SqlCommand)
+- **UI Framework:** WPF with Lepo WPF UI (Windows-only, dark theme only)
+- **Database:** SQL Server (on-premise, standard relational tables)
+- **Data Access:** Raw ADO.NET (SqlConnection / SqlCommand, manual SQL)
+- **Charts:** LiveCharts2 (dashboards, summary visualizations)
+- **Time-Series Graphs:** ScottPlot (real-time monitoring, historical trends)
 
 ### Protocols & APIs
 
-- **WMI/CIM:** Microsoft.Management.Infrastructure
-- **PowerShell:** System.Management.Automation
-- **Active Directory:** System.DirectoryServices.Protocols (LDAP)
+- **WinRM/PowerShell:** System.Management.Automation (primary transport)
+- **WMI/CIM:** Microsoft.Management.Infrastructure (legacy fallback for bootstrapping)
+- **Active Directory:** System.DirectoryServices.Protocols (LDAP queries)
 - **Event Logs:** System.Diagnostics.Eventing.Reader
 - **Remote Registry:** Microsoft.Win32.RegistryKey.OpenRemoteBaseKey
 - **Remote Services:** System.ServiceProcess.ServiceController
 - **Raw Sockets:** System.Net.Sockets
-- **Packet Capture:** P/Invoke to Npcap or SharpPcap
 - **SNMP:** Custom UDP + ASN.1/BER parsing (or lightweight library)
 - **Syslog:** UDP port 514, RFC 5424 parsing
-- **Crypto:** System.Security.Cryptography
-
-### Rendering
-
-- **Custom Visualizations:** SkiaSharp (2D canvas, hardware acceleration)
-- **Network Graphs:** Force-directed layout engine
-- **AD Attack Graph:** Neo4j + SkiaSharp rendering
-- **Charts & Heatmaps:** Custom SkiaSharp rendering
+- **Crypto:** System.Security.Cryptography (DPAPI for credential vault)
 
 ---
 
@@ -603,6 +389,97 @@ Read-only printer monitoring via WMI (Win32_Printer, Win32_PrintJob). Remote pri
 - **Windows-First:** Primary target is Windows enterprise environments
 - **Security-Informed:** Defensive tools built with understanding of offensive techniques
 - **No Multi-Tenancy:** Single-organization deployment — this is not an MSP tool
+- **Performance-First:** Async/await with concurrency controls, efficient SQL queries, minimal UI overhead
+
+---
+
+## Deferred to V2
+
+The following modules are intentionally cut from V1 to ensure a shippable product:
+
+### Module 3 — Network Recon & Visualization
+- Force-directed topology graphs
+- Visual switch port mappers
+- Geographic network layouts
+- Cable plant/rack visualizers
+
+**V1 Alternative:** Basic network device inventory via SNMP with sortable grids showing IP, MAC, switch port, VLAN.
+
+### Module 4 — Compliance & Configuration
+- CIS/NIST/PCI benchmark scanning
+- Configuration drift detection
+- GPO conflict detector
+- Compliance heatmaps
+
+**V1 Alternative:** Basic GPO inventory and AD security checks (Module 6) provide foundational security posture.
+
+### Module 6 Extensions — AD Attack Path Visualizer
+- Force-directed graph rendering of attack paths
+- Neo4j graph database
+- BloodHound-style path enumeration
+
+**V1 Alternative:** Provide lists of security issues (Kerberoastable accounts, delegation misconfigs) without graphical path visualization.
+
+### Module 8 — MITRE ATT&CK Coverage & Validation
+- ATT&CK coverage mapper
+- Purple team automator
+- Technique validation framework
+
+**V1 Alternative:** Deception Engine (Module 7) provides detection validation for specific techniques.
+
+### Module 9 — Pentest & Security Assessment
+- Internal vulnerability scanner
+- SMB security assessment
+- LLMNR/NBT-NS poisoning detection
+- ARP watch
+
+**V1 Alternative:** Basic port scanning and service enumeration via network discovery tools.
+
+### Module 10 — Endpoint Forensics
+- USB device audit trail
+- Shadow IT detector
+- WMI persistence scanner
+- Process anomaly baseline
+- File integrity monitoring
+
+**V1 Alternative:** Event log analysis (Module 5) provides basic forensic capabilities.
+
+### Module 11 — Certificate & Crypto Management
+- Certificate expiration dashboard
+- Automated cert scanning across environment
+
+**V1 Alternative:** Manual certificate tracking or third-party cert monitoring tools.
+
+---
+
+## V1 Success Criteria
+
+The V1 release is considered successful if it delivers:
+
+1. ✅ Agentless fleet management (inventory, remote execution, patching)
+2. ✅ Centralized security event aggregation (mini-SIEM)
+3. ✅ Active Directory security posture assessment
+4. ✅ **Deception engine with zero false positive attacker detection**
+5. ✅ Professional dark-themed UI with sortable grids and clean visualizations
+6. ✅ Fast, responsive async operations (250 machines scanned in 2-3 minutes)
+7. ✅ On-premise deployment with zero cloud dependencies
+8. ✅ Exportable compliance and audit reports
+
+---
+
+## Development Timeline Estimate
+
+**Total: 20-26 weeks (4-6 months at sustainable pace)**
+
+- WPF shell + navigation: 1-2 weeks
+- SQL Server + data layer: 1-2 weeks
+- Connectivity engine (WinRM + WMI bootstrapping): 2-3 weeks
+- Module 2 (Asset Intelligence): 3-4 weeks
+- Module 1 (RMM): 4-6 weeks
+- Module 6 (AD Security): 3-4 weeks
+- Module 7 (Deception Engine): 2-3 weeks
+- Module 5 (Threat Dashboard): 3-4 weeks
+- Polish, testing, documentation: 2-3 weeks
 
 ---
 
